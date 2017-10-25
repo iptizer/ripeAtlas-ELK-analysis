@@ -1,0 +1,45 @@
+---
+
+- include: roles/galaxyroles/ansible-elk/install/elk.yml
+
+- name: Add Ripe Atlas Input
+  hosts: elk
+  tasks:
+     - name: add user mrinput
+       user:
+            name: mrinput
+     - name: assure additional packages installed
+       yum:
+               name: "{{ item }}"
+               state: present
+       with_items:
+               - wget
+               - vim
+     - name: assure inputFiles dir is present
+       file:
+               path: /home/mrinput/inputFiles/
+               state: directory
+               owner: mrinput
+     - name: template logstash config
+       template:
+               src: templates/ripeAtlasLogstash.conf
+               dest: /etc/logstash/conf.d/ripeAtlas.conf
+               owner: logstash
+               group: logstash
+       notify: restart logstash
+     - name: remove old logstash config
+       file:
+               dest: /etc/logstash/conf.d/logstash.conf
+               state: absent
+     - name: Execute downloadscripts to gather the data... this can take some time (default file 1.1G)
+       shell: wget -O ./inputFiles/{{ item.value.measurementNumber }}.json https://atlas.ripe.net/api/v2/measurements/{{ item.value.measurementNumber }}/results/?start={{ item.value.measurementStart }}&stop=1285977600&format=json
+       args:
+               chdir: /home/mrinput/
+               creates: "/home/mrinput/inputFiles/{{ item.key }}.json"
+       with_dict: "{{ ripeAtlasMeasurements }}"
+  handlers:
+          - name: restart logstash
+            systemd:
+                    name: logstash
+                    state: restarted
+

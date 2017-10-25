@@ -1,0 +1,9 @@
+---
+
+# You can add additinal measurements from
+# https://atlas.ripe.net/measurements/
+
+ripeAtlasMeasurements:
+        11401:
+                measurementNumber: 11401
+                measurementStart: 1285891200
