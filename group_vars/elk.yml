@@ -4,6 +4,12 @@
 # https://atlas.ripe.net/measurements/
 
 ripeAtlasMeasurements:
-        11401:
-                measurementNumber: 11401
-                measurementStart: 1285891200
+        measurement11401:
+                measurementNumber: 13027
+                startSecondsBeforeNow: 300
+        measurement2006:
+                measurementNumber: 2006
+                startSecondsBeforeNow: 3000
+        measurement30002:
+                measurementNumber: 30002
+                startSecondsBeforeNow: 3000

@@ -1,6 +1,6 @@
 ---
 
-- include: roles/galaxyroles/ansible-elk/install/elk.yml
+- import_playbook: roles/galaxyroles/ansible-elk/install/elk.yml
 
 - name: Add Ripe Atlas Input
   hosts: elk
@@ -20,6 +20,29 @@
                path: /home/mrinput/inputFiles/
                state: directory
                owner: mrinput
+               group: mrinput
+       tags:
+               - downloadonly
+     - name: Allow other users to access /home/mrpinput
+       file:
+               dest: /home/mrinput/
+               mode: 0755
+               state: directory
+     # start custom ELK config
+     - name: Add ripeAtlas elasticsearch template
+       uri:
+         url: "http://localhost:9200/_template/ripeatlas"
+         method: PUT
+         status_code: 200
+         body: "{{ lookup('file','templates/ripeatlas.es-template.json') }}"
+         body_format: json
+         #         headers:
+         #    Content-Type: "application/json"
+       tags: elasticsearch
+       register: estemplate
+     - debug:
+             var: estemplate
+       tags: elasticsearch
      - name: template logstash config
        template:
                src: templates/ripeAtlasLogstash.conf
@@ -27,16 +50,44 @@
                owner: logstash
                group: logstash
        notify: restart logstash
-     - name: remove old logstash config
-       file:
-               dest: /etc/logstash/conf.d/logstash.conf
-               state: absent
-     - name: Execute downloadscripts to gather the data... this can take some time (default file 1.1G)
-       shell: wget -O ./inputFiles/{{ item.value.measurementNumber }}.json https://atlas.ripe.net/api/v2/measurements/{{ item.value.measurementNumber }}/results/?start={{ item.value.measurementStart }}&stop=1285977600&format=json
-       args:
-               chdir: /home/mrinput/
-               creates: "/home/mrinput/inputFiles/{{ item.key }}.json"
+     - name: increase logstash heap to 3g
+       lineinfile:
+               path: /etc/logstash/jvm.options
+               state: present
+               regexp: "^-Xmx"
+               line: "-Xmx3g"
+       notify: restart logstash
+     - name: Execute downloadscripts to gather the data, this can take some time...
+       get_url:
+               url: "https://atlas.ripe.net/api/v2/measurements/{{ item.value.measurementNumber }}/results/?start={{ '%s' | strftime( ( ansible_date_time.epoch| int) - item.value.startSecondsBeforeNow ) }}&stop={{ ansible_date_time.epoch }}&format=json"
+               dest: "/home/mrinput/inputFiles/{{ item.value.measurementNumber }}.json"
+               group: mrinput
+               owner: mrinput
        with_dict: "{{ ripeAtlasMeasurements }}"
+       register: downloaded
+       tags:
+               - downloadonly
+     - name: logstash has problems without a newline, add newline to downloaded file
+       shell: echo "" >> "/home/mrinput/inputFiles/{{ item.value.measurementNumber }}.json"
+       with_dict: "{{ ripeAtlasMeasurements }}"
+       tags:
+               - downloadonly
+       when: downloaded.changed == true
+     # following tasks will downgrade logstash and activate debug
+     # this is necessary because in the current version logstash
+     # fails when restarted with debug
+     - name: downgrade to older logstash (starting with debug)
+       shell: yum downgrade -y logstash-5.6.2-1.noarch
+       notify: restart logstash
+       tags: downgradeLogstash
+     - name: activate debug in logstash
+       lineinfile:
+               path: /etc/logstash/logstash.yml
+               state: present
+               regexp: "log.level:"
+               line: "log.level: debug"
+       notify: restart logstash
+       tags: downgradeLogstash
   handlers:
           - name: restart logstash
             systemd:
